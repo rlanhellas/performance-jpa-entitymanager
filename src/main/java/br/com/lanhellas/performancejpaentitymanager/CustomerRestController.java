@@ -4,6 +4,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import javax.persistence.EntityManager;
+import javax.persistence.Query;
 import javax.transaction.Transactional;
 import java.util.ArrayList;
 import java.util.List;
@@ -14,7 +15,9 @@ public class CustomerRestController {
     private final CustomerRepository repository;
     private final EntityManager entityManager;
 
-    private final int ROWS = 1000000;
+    private List<Customer> customerListDetached = new ArrayList<>();
+
+    private final int ROWS = 100000;
 
     public CustomerRestController(CustomerRepository repository, EntityManager entityManager) {
         this.repository = repository;
@@ -24,11 +27,15 @@ public class CustomerRestController {
     @GetMapping("/save-with-entitymanager")
     @Transactional
     public long saveWithEntityManager() {
-
+        List<Customer> customerList = new ArrayList<>();
         for (int i = 0; i < ROWS; i++) {
-            entityManager.persist(createCustomer());
+            Customer customer = createCustomer();
+            customerList.add(customer);
+            entityManager.persist(customer);
         }
 
+        entityManager.flush();
+        loadDetached(customerList);
         return repository.count();
     }
 
@@ -36,10 +43,36 @@ public class CustomerRestController {
     public long saveWithJpa() {
         List<Customer> customerList = new ArrayList<>();
         for (int i = 0; i < ROWS; i++) {
-            customerList.add(createCustomer());
+            Customer customer = createCustomer();
+            customerList.add(customer);
+            repository.save(customer);
         }
 
-        repository.saveAll(customerList);
+        repository.flush();
+        loadDetached(customerList);
+        return repository.count();
+    }
+
+    @GetMapping("/delete-with-jpa")
+    public long deleteWithJpa() {
+
+        for (Customer customer : customerListDetached) {
+            repository.delete(customer);
+        }
+
+        return repository.count();
+    }
+
+    @GetMapping("/delete-with-entitymanager")
+    @Transactional
+    public long deleteWithEntityManager() {
+
+        for (Customer customer : customerListDetached) {
+            Query q = entityManager.createQuery("DELETE FROM Customer c WHERE c.id = :id");
+            q.setParameter("id", customer.getId());
+            q.executeUpdate();
+        }
+
         return repository.count();
     }
 
@@ -48,6 +81,12 @@ public class CustomerRestController {
         customer.setAge(10);
         customer.setName("RONALDO");
         return customer;
+    }
+
+    private void loadDetached(List<Customer> customerList) {
+        customerListDetached.clear();
+        customerListDetached.addAll(customerList);
+        entityManager.clear();
     }
 
 }
